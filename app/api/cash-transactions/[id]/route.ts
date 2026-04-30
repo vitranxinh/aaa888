@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requireApiSession } from "@/lib/auth";
-import { recalculateOrderPaymentState, recalculatePurchasePaymentState } from "@/lib/debt-service";
+import {
+  recalculateCustomerReceivableDebt,
+  recalculateOrderPaymentState,
+  recalculatePurchasePaymentState,
+  recalculateSupplierPayableDebt
+} from "@/lib/debt-service";
 import { prisma } from "@/lib/prisma";
 import { cashTransactionSchema } from "@/lib/validations";
 
@@ -42,11 +47,17 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
       const orderIds = new Set<string>();
       const purchaseIds = new Set<string>();
+      const customerIds = new Set<string>();
+      const supplierIds = new Set<string>();
 
       if (existing.orderId) orderIds.add(existing.orderId);
       if (payload.orderId) orderIds.add(payload.orderId);
       if (existing.purchaseOrderId) purchaseIds.add(existing.purchaseOrderId);
       if (payload.purchaseOrderId) purchaseIds.add(payload.purchaseOrderId);
+      if (existing.customerId) customerIds.add(existing.customerId);
+      if (payload.customerId) customerIds.add(payload.customerId);
+      if (existing.supplierId) supplierIds.add(existing.supplierId);
+      if (payload.supplierId) supplierIds.add(payload.supplierId);
 
       for (const orderId of orderIds) {
         await recalculateOrderPaymentState(tx, orderId);
@@ -54,6 +65,14 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
       for (const purchaseId of purchaseIds) {
         await recalculatePurchasePaymentState(tx, purchaseId);
+      }
+
+      for (const customerId of customerIds) {
+        await recalculateCustomerReceivableDebt(tx, customerId);
+      }
+
+      for (const supplierId of supplierIds) {
+        await recalculateSupplierPayableDebt(tx, supplierId);
       }
 
       return updated;
@@ -91,6 +110,14 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
 
       if (existing.purchaseOrderId) {
         await recalculatePurchasePaymentState(tx, existing.purchaseOrderId);
+      }
+
+      if (existing.customerId) {
+        await recalculateCustomerReceivableDebt(tx, existing.customerId);
+      }
+
+      if (existing.supplierId) {
+        await recalculateSupplierPayableDebt(tx, existing.supplierId);
       }
     });
 

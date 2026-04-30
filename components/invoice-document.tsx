@@ -39,6 +39,7 @@ type InvoiceDocumentProps = {
   paymentMethodLabel: string;
   subtotal: number;
   discountTotal?: number;
+  otherCharge?: number;
   paidAmount: number;
   debtAmount: number;
   grandTotal: number;
@@ -63,6 +64,7 @@ export function InvoiceDocument({
   paymentMethodLabel,
   subtotal,
   discountTotal = 0,
+  otherCharge = 0,
   paidAmount,
   debtAmount,
   grandTotal,
@@ -189,6 +191,16 @@ export function InvoiceDocument({
                 </tr>
                 <tr>
                   <td colSpan={2} className="border border-slate-400 px-1 py-1 text-right font-semibold">
+                    Thu khác
+                  </td>
+                  <td className="border border-slate-400 px-1 py-1 text-right text-[13px] font-bold whitespace-nowrap">
+                    <div className="flex w-full justify-end text-right">
+                      <span className="min-w-[72px] text-right">{formatInvoiceAmount(otherCharge)}</span>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} className="border border-slate-400 px-1 py-1 text-right font-semibold">
                     Số tiền đã trả
                   </td>
                   <td className="border border-slate-400 px-1 py-1 text-right text-[13px] font-bold whitespace-nowrap">
@@ -289,6 +301,16 @@ export function InvoiceDocument({
                   <td className="border border-slate-400 px-0.5 py-1 text-right text-[12px] font-bold whitespace-nowrap">
                     <div className="flex w-full justify-end text-right">
                       <span className="min-w-[72px] text-right">{formatInvoiceAmount(discountTotal)}</span>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={3} className="border border-slate-400 px-0.5 py-1 text-right font-semibold">
+                    Thu khác
+                  </td>
+                  <td className="border border-slate-400 px-0.5 py-1 text-right text-[12px] font-bold whitespace-nowrap">
+                    <div className="flex w-full justify-end text-right">
+                      <span className="min-w-[72px] text-right">{formatInvoiceAmount(otherCharge)}</span>
                     </div>
                   </td>
                 </tr>

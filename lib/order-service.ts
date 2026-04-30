@@ -10,6 +10,7 @@ type OrderPayload = {
   paymentMethod: PaymentMethod;
   paidAmount: number;
   orderDiscount: number;
+  otherCharge: number;
   note?: string;
   status: "DRAFT" | "COMPLETED" | "PARTIAL" | "CANCELLED";
   items: Array<{ productId: string; quantity: number; unitPrice: number; discountValue: number }>;
@@ -39,12 +40,14 @@ function calculateOrderDerivedState(items: Awaited<ReturnType<typeof loadOrderPa
     payload.orderDiscount
   );
 
+  const grandTotal = Math.max(totals.grandTotal + payload.otherCharge, 0);
   const paidAmount = payload.paidAmount;
-  const debtAmount = Math.max(totals.grandTotal - paidAmount, 0);
+  const debtAmount = Math.max(grandTotal - paidAmount, 0);
   const finalStatus: OrderStatus = payload.status === "DRAFT" ? "DRAFT" : debtAmount > 0 ? "PARTIAL" : "COMPLETED";
 
   return {
     totals,
+    grandTotal,
     paidAmount,
     debtAmount,
     finalStatus
@@ -168,8 +171,8 @@ async function applyOrderEffects(
   await tx.customer.update({
     where: { id: payload.customerId },
     data: {
-      totalSpend: { increment: derived.totals.grandTotal },
-      loyaltyPoints: { increment: Math.floor(derived.totals.grandTotal / 100000) }
+      totalSpend: { increment: derived.grandTotal },
+      loyaltyPoints: { increment: Math.floor(derived.grandTotal / 100000) }
     }
   });
 }
@@ -250,7 +253,8 @@ export async function createOrderFromPayload(payload: OrderPayload) {
         status: derived.finalStatus,
         subtotal: new Prisma.Decimal(derived.totals.subtotal),
         discountTotal: new Prisma.Decimal(derived.totals.itemDiscountTotal + payload.orderDiscount),
-        grandTotal: new Prisma.Decimal(derived.totals.grandTotal),
+        otherCharge: new Prisma.Decimal(payload.otherCharge),
+        grandTotal: new Prisma.Decimal(derived.grandTotal),
         profitEstimate: new Prisma.Decimal(derived.totals.profitEstimate),
         paymentMethod: payload.paymentMethod,
         paidAmount: new Prisma.Decimal(derived.paidAmount),
@@ -286,6 +290,13 @@ export async function createOrderFromPayload(payload: OrderPayload) {
   return order;
 }
 
+function nextOrderRevisionCode(currentCode: string) {
+  const match = currentCode.match(/^(.*?)(?:\.(\d+))?$/);
+  const baseCode = match?.[1] || currentCode;
+  const currentRevision = Number(match?.[2] || 0);
+  return `${baseCode}.${currentRevision + 1}`;
+}
+
 export async function updateOrderFromPayload(orderId: string, payload: OrderPayload) {
   const existing = await prisma.order.findUnique({
     where: { id: orderId },
@@ -298,6 +309,7 @@ export async function updateOrderFromPayload(orderId: string, payload: OrderPayl
 
   const items = await loadOrderPayloadItems(payload.items);
   const derived = calculateOrderDerivedState(items, payload);
+  const nextCodeVersion = nextOrderRevisionCode(existing.code);
 
   const order = await prisma.$transaction(async (tx) => {
     await revertOrderEffects(tx, existing);
@@ -305,13 +317,15 @@ export async function updateOrderFromPayload(orderId: string, payload: OrderPayl
     const updated = await tx.order.update({
       where: { id: orderId },
       data: {
+        code: nextCodeVersion,
         branchId: payload.branchId,
         customerId: payload.customerId,
         createdById: payload.createdById,
         status: derived.finalStatus,
         subtotal: new Prisma.Decimal(derived.totals.subtotal),
         discountTotal: new Prisma.Decimal(derived.totals.itemDiscountTotal + payload.orderDiscount),
-        grandTotal: new Prisma.Decimal(derived.totals.grandTotal),
+        otherCharge: new Prisma.Decimal(payload.otherCharge),
+        grandTotal: new Prisma.Decimal(derived.grandTotal),
         profitEstimate: new Prisma.Decimal(derived.totals.profitEstimate),
         paymentMethod: payload.paymentMethod,
         paidAmount: new Prisma.Decimal(derived.paidAmount),
@@ -342,7 +356,7 @@ export async function updateOrderFromPayload(orderId: string, payload: OrderPayl
 
   if (derived.finalStatus !== "DRAFT") {
     for (const item of items) {
-      await allocateBatchesFEFO(payload.branchId, item.product.id, item.quantity, existing.code, payload.createdById);
+      await allocateBatchesFEFO(payload.branchId, item.product.id, item.quantity, nextCodeVersion, payload.createdById);
     }
   }
 

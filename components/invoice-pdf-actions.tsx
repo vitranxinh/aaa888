@@ -29,6 +29,7 @@ type Props = {
   note: string;
   subtotal: number;
   discountTotal?: number;
+  otherCharge?: number;
   paidAmount: number;
   debtAmount: number;
   grandTotal: number;
@@ -147,6 +148,7 @@ export function InvoicePdfActions(props: Props) {
             paymentMethodLabel={props.debtAmount > 0 ? "Còn nợ" : "Đã thanh toán"}
             subtotal={props.subtotal}
             discountTotal={props.discountTotal || 0}
+            otherCharge={props.otherCharge || 0}
             paidAmount={props.paidAmount}
             debtAmount={props.debtAmount}
             grandTotal={props.grandTotal}

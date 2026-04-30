@@ -13,7 +13,12 @@ import { cn } from "@/lib/utils";
 export function MobileNav({ session }: { session: SessionUser }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname() ?? "";
-  const quickItems = navigationItems.filter((item) => canAccess(session.role, item.key)).slice(0, 5);
+  const quickItems = navigationItems
+    .filter(
+      (item) =>
+        canAccess(session.role, item.key) &&
+        ["dashboard", "customers", "products", "orders"].includes(item.key)
+    );
 
   return (
     <>
@@ -93,7 +98,7 @@ export function MobileNav({ session }: { session: SessionUser }) {
       ) : null}
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/98 px-2 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-4 gap-1">
           {quickItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);

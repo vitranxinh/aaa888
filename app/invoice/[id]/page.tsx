@@ -41,6 +41,7 @@ export default async function InvoicePage({
           }
           subtotal={Number(order.subtotal)}
           discountTotal={Number(order.discountTotal)}
+          otherCharge={Number(order.otherCharge)}
           paidAmount={Number(order.paidAmount)}
           debtAmount={Number(order.debtAmount)}
           grandTotal={Number(order.grandTotal)}

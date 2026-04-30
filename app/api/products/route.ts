@@ -32,7 +32,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireApiSession(["ADMIN", "MANAGER"]);
+    await requireApiSession(["ADMIN", "MANAGER", "CASHIER"]);
     const body = await request.json();
     const productInput = {
       name: body.name,

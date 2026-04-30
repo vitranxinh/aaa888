@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requireApiSession, resolveActorUserId } from "@/lib/auth";
-import { recalculateOrderPaymentState, recalculatePurchasePaymentState } from "@/lib/debt-service";
+import {
+  recalculateCustomerReceivableDebt,
+  recalculateOrderPaymentState,
+  recalculatePurchasePaymentState,
+  recalculateSupplierPayableDebt
+} from "@/lib/debt-service";
 import { nextCode } from "@/lib/order-service";
 import { prisma } from "@/lib/prisma";
 import { cashTransactionSchema } from "@/lib/validations";
@@ -39,8 +44,16 @@ export async function POST(request: Request) {
         await recalculateOrderPaymentState(tx, payload.orderId);
       }
 
+      if (payload.customerId) {
+        await recalculateCustomerReceivableDebt(tx, payload.customerId);
+      }
+
       if (payload.type === "PAYMENT" && payload.purchaseOrderId) {
         await recalculatePurchasePaymentState(tx, payload.purchaseOrderId);
+      }
+
+      if (payload.supplierId) {
+        await recalculateSupplierPayableDebt(tx, payload.supplierId);
       }
 
       return created;

@@ -64,7 +64,7 @@ export default async function OrdersPage({
     }),
     prisma.order.count({ where: orderWhere }),
     prisma.customer.findMany({ orderBy: { code: "desc" }, take: 300 }),
-    prisma.product.findMany({ orderBy: { name: "asc" }, take: 300 }),
+    prisma.product.findMany({ orderBy: { name: "asc" }, take: 5000 }),
     prisma.branch.findFirst({
       where: { isActive: true },
       orderBy: { createdAt: "asc" },
@@ -94,9 +94,14 @@ export default async function OrdersPage({
             }
           },
           orderBy: { createdAt: "desc" }
-        })
+    })
       : Promise.resolve([])
   ]);
+  customers.sort((a, b) => {
+    if (a.code === "KH000000") return -1;
+    if (b.code === "KH000000") return 1;
+    return a.code.localeCompare(b.code);
+  });
 
   const branchId = session.branchId ?? defaultBranch?.id ?? "";
 
@@ -168,6 +173,9 @@ export default async function OrdersPage({
                 {order.customer.name}
               </Link>
               <p className="mt-1 text-[0.92rem] text-slate-500">Lập bởi: {order.createdBy?.name ?? "Không rõ"}</p>
+              <p className="mt-1 text-[0.92rem] font-semibold text-red-600">
+                Khách còn nợ: {formatCurrency(Number(order.customer.receivableDebt))}
+              </p>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -188,6 +196,7 @@ export default async function OrdersPage({
               <th className="px-3 py-3 sm:px-6 sm:py-4">Mã HĐ</th>
               <th className="px-3 py-3 sm:px-6 sm:py-4">Ngày</th>
               <th className="px-3 py-3 sm:px-6 sm:py-4">Khách hàng</th>
+              <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Công nợ KH</th>
               <th className="px-3 py-3 sm:px-6 sm:py-4">Người tạo</th>
               <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Tổng tiền</th>
               <th className="px-3 py-3 sm:px-6 sm:py-4">Thao tác</th>
@@ -206,6 +215,9 @@ export default async function OrdersPage({
                   <Link href={`/orders/${order.id}`} className="underline-offset-2 hover:underline">
                     {order.customer.name}
                   </Link>
+                </td>
+                <td className="px-3 py-3 text-right font-semibold text-red-600 sm:px-6 sm:py-4">
+                  {formatCurrency(Number(order.customer.receivableDebt))}
                 </td>
                 <td className="px-3 py-3 sm:px-6 sm:py-4">{order.createdBy?.name ?? "-"}</td>
                 <td className="px-3 py-3 text-right sm:px-6 sm:py-4">{formatCurrency(Number(order.grandTotal))}</td>

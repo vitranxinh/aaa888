@@ -19,6 +19,7 @@ export const posCheckoutSchema = z.object({
   paymentMethod: z.enum(["CASH", "BANK_TRANSFER", "MIXED"]),
   paidAmount: z.coerce.number().nonnegative(),
   orderDiscount: z.coerce.number().nonnegative().default(0),
+  otherCharge: z.coerce.number().nonnegative().default(0),
   note: z.string().optional(),
   status: z.enum(["DRAFT", "COMPLETED", "PARTIAL", "CANCELLED"]).default("COMPLETED"),
   items: z.array(posItemSchema).min(1, "Giỏ hàng đang trống")

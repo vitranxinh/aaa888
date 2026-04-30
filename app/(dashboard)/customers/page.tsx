@@ -5,17 +5,7 @@ import { CustomerCreateForm } from "@/components/customer-create-form";
 import { CustomerEditModal } from "@/components/customer-edit-modal";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency, formatDate } from "@/lib/utils";
-
-type DebtHistoryItem = {
-  id: string;
-  code: string;
-  createdAt: Date;
-  grandTotal: number;
-  paidAmount: number;
-  debtAmount: number;
-  note: string | null;
-};
+import { formatCurrency } from "@/lib/utils";
 
 export default async function CustomersPage({
   searchParams
@@ -23,6 +13,7 @@ export default async function CustomersPage({
   searchParams?: { q?: string; debt?: string };
 }) {
   const session = await requireSession(["ADMIN", "MANAGER", "CASHIER"]);
+  const canCreateCustomers = true;
   const canManageCustomers = session.role !== "CASHIER";
   const canSeeCustomerPrivateFields = session.role !== "CASHIER";
   const q = searchParams?.q ?? "";
@@ -51,65 +42,10 @@ export default async function CustomersPage({
     prisma.customerGroup.findMany({ orderBy: { name: "asc" } })
   ]);
 
-  const customerIds = customers.map((customer) => customer.id);
-
-  const [orderDebtByCustomer, debtOrders] = customerIds.length
-    ? await Promise.all([
-        prisma.order.groupBy({
-          by: ["customerId"],
-          where: {
-            customerId: { in: customerIds },
-            status: { in: ["COMPLETED", "PARTIAL"] }
-          },
-          _sum: { debtAmount: true }
-        }),
-        prisma.order.findMany({
-          where: {
-            customerId: { in: customerIds },
-            status: { in: ["COMPLETED", "PARTIAL"] }
-          },
-          select: {
-            id: true,
-            code: true,
-            createdAt: true,
-            grandTotal: true,
-            paidAmount: true,
-            debtAmount: true,
-            note: true,
-            customerId: true
-          },
-          orderBy: [{ createdAt: "desc" }]
-        })
-      ])
-    : [[], []];
-
-  const orderDebtMap = new Map(
-    orderDebtByCustomer.map((item) => [item.customerId, Number(item._sum.debtAmount ?? 0)])
-  );
-
-  const debtHistoryMap = debtOrders.reduce<Map<string, DebtHistoryItem[]>>((map, order) => {
-    const debtAmount = Number(order.debtAmount ?? 0);
-    if (debtAmount <= 0) return map;
-
-    const currentEntries = map.get(order.customerId) ?? [];
-    currentEntries.push({
-      id: order.id,
-      code: order.code,
-      createdAt: order.createdAt,
-      grandTotal: Number(order.grandTotal),
-      paidAmount: Number(order.paidAmount),
-      debtAmount,
-      note: order.note
-    });
-    map.set(order.customerId, currentEntries);
-    return map;
-  }, new Map());
-
   const filteredCustomers = customers
     .map((customer) => ({
       ...customer,
-      totalDebt: Number(customer.openingDebt) + (orderDebtMap.get(customer.id) ?? 0),
-      debtHistory: debtHistoryMap.get(customer.id) ?? []
+      totalDebt: Number(customer.receivableDebt)
     }))
     .filter((customer) => (debtFilter === "has_debt" ? customer.totalDebt > 0 : true))
     .sort((a, b) => {
@@ -124,60 +60,6 @@ export default async function CustomersPage({
     value: customer.name,
     meta: [customer.code, customer.phone].filter(Boolean).join(" • ")
   }));
-
-  const renderDebtHistory = (customerId: string, totalDebt: number, compact = false) => {
-    const entries = debtHistoryMap.get(customerId) ?? [];
-
-    if (!entries.length) {
-      return (
-        <div className={`rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 ${compact ? "px-3 py-2 text-sm" : "px-4 py-3 text-sm sm:text-base"}`}>
-          Không có công nợ từ hóa đơn.
-        </div>
-      );
-    }
-
-    return (
-      <details className="rounded-2xl border border-red-100 bg-red-50/60">
-        <summary className={`cursor-pointer list-none font-semibold text-red-700 ${compact ? "px-3 py-2 text-sm" : "px-4 py-3 text-sm sm:text-base"}`}>
-          Chi tiết công nợ ({entries.length} hóa đơn)
-        </summary>
-        <div className={`space-y-2 border-t border-red-100 ${compact ? "px-3 py-3" : "px-4 py-4"}`}>
-          <div className="rounded-2xl bg-white px-3 py-2 text-xs text-slate-500 sm:text-sm">
-            Tổng công nợ hiện tại: <span className="font-bold text-red-600">{formatCurrency(totalDebt)}</span>
-          </div>
-          {entries.map((entry) => (
-            <div key={entry.id} className="rounded-2xl border border-white bg-white px-3 py-3 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <Link href={`/orders/${entry.id}`} className="text-sm font-bold text-emerald-700 underline-offset-2 hover:underline sm:text-base">
-                    {entry.code}
-                  </Link>
-                  <p className="mt-1 text-xs text-slate-500 sm:text-sm">Ngày tạo: {formatDate(entry.createdAt)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-500 sm:text-sm">Còn nợ</p>
-                  <p className="text-sm font-bold text-red-600 sm:text-base">{formatCurrency(entry.debtAmount)}</p>
-                </div>
-              </div>
-              <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 sm:text-sm">
-                <div>
-                  <span className="font-medium text-slate-500">Tổng hóa đơn:</span> {formatCurrency(entry.grandTotal)}
-                </div>
-                <div>
-                  <span className="font-medium text-slate-500">Đã trả:</span> {formatCurrency(entry.paidAmount)}
-                </div>
-              </div>
-              {entry.note ? (
-                <p className="mt-2 text-xs leading-relaxed text-slate-500 sm:text-sm">
-                  <span className="font-medium">Ghi chú:</span> {entry.note}
-                </p>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </details>
-    );
-  };
 
   return (
     <div className="space-y-5 sm:space-y-8">
@@ -206,7 +88,7 @@ export default async function CustomersPage({
             Lọc
           </button>
         </form>
-        {canManageCustomers ? (
+        {canCreateCustomers ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <details className="relative">
               <summary className="cursor-pointer list-none rounded-2xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white shadow-soft sm:px-6 sm:py-4 sm:text-2xl">
@@ -226,7 +108,9 @@ export default async function CustomersPage({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[0.9rem] font-semibold uppercase tracking-wide text-slate-400">{customer.code}</p>
-                <p className="mt-1 text-[1.2rem] font-bold leading-snug text-slate-900">{customer.name}</p>
+                <Link href={`/customers/${customer.id}`} className="mt-1 block text-[1.2rem] font-bold leading-snug text-slate-900 underline-offset-2 hover:underline">
+                  {customer.name}
+                </Link>
               </div>
               {canManageCustomers ? (
                 <CustomerEditModal
@@ -240,7 +124,7 @@ export default async function CustomersPage({
                     note: customer.note,
                     groupId: customer.groupId,
                     openingDebt: Number(customer.openingDebt),
-                    currentDebt: Number(customer.openingDebt) + (orderDebtMap.get(customer.id) ?? 0)
+                    currentDebt: Number(customer.receivableDebt)
                   }}
                   groups={groupOptions}
                 />
@@ -265,7 +149,14 @@ export default async function CustomersPage({
               </div>
             ) : null}
 
-            <div className="mt-3">{renderDebtHistory(customer.id, customer.totalDebt, true)}</div>
+            <div className="mt-3">
+              <Link
+                href={`/customers/${customer.id}`}
+                className="inline-flex items-center rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700"
+              >
+                Xem chi tiết công nợ
+              </Link>
+            </div>
           </div>
         ))}
       </div>
@@ -279,7 +170,7 @@ export default async function CustomersPage({
               {canSeeCustomerPrivateFields ? <th className="px-3 py-3 sm:px-6 sm:py-4">SĐT</th> : null}
               {canSeeCustomerPrivateFields ? <th className="px-3 py-3 sm:px-6 sm:py-4">Địa chỉ</th> : null}
               <th className="px-3 py-3 text-right text-red-600 sm:px-6 sm:py-4">Công nợ</th>
-              <th className="px-3 py-3 sm:px-6 sm:py-4">Chi tiết công nợ</th>
+              <th className="px-3 py-3 sm:px-6 sm:py-4">Chi tiết</th>
               {canManageCustomers ? <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Thao tác</th> : null}
             </tr>
           </thead>
@@ -287,14 +178,23 @@ export default async function CustomersPage({
             {filteredCustomers.map((customer) => (
               <tr key={customer.id} className="border-t border-slate-100 align-top text-[15px] text-slate-700 sm:text-2xl">
                 <td className="px-3 py-3 sm:px-6 sm:py-4">{customer.code}</td>
-                <td className="px-3 py-3 font-semibold text-slate-900 sm:px-6 sm:py-4">{customer.name}</td>
+                <td className="px-3 py-3 font-semibold text-slate-900 sm:px-6 sm:py-4">
+                  <Link href={`/customers/${customer.id}`} className="underline-offset-2 hover:underline">
+                    {customer.name}
+                  </Link>
+                </td>
                 {canSeeCustomerPrivateFields ? <td className="px-3 py-3 sm:px-6 sm:py-4">{customer.phone}</td> : null}
                 {canSeeCustomerPrivateFields ? <td className="px-3 py-3 sm:px-6 sm:py-4">{customer.address || "-"}</td> : null}
                 <td className="px-3 py-3 text-right font-semibold text-red-600 sm:px-6 sm:py-4">
                   {formatCurrency(customer.totalDebt)}
                 </td>
                 <td className="px-3 py-3 sm:px-6 sm:py-4">
-                  {renderDebtHistory(customer.id, customer.totalDebt)}
+                  <Link
+                    href={`/customers/${customer.id}`}
+                    className="inline-flex items-center rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700"
+                  >
+                    Xem chi tiết công nợ
+                  </Link>
                 </td>
                 {canManageCustomers ? (
                   <td className="px-3 py-3 text-right sm:px-6 sm:py-4">
@@ -309,7 +209,7 @@ export default async function CustomersPage({
                         note: customer.note,
                         groupId: customer.groupId,
                         openingDebt: Number(customer.openingDebt),
-                        currentDebt: Number(customer.openingDebt) + (orderDebtMap.get(customer.id) ?? 0)
+                        currentDebt: Number(customer.receivableDebt)
                       }}
                       groups={groupOptions}
                     />

@@ -2,8 +2,10 @@ import { AppHeader } from "@/components/app-header";
 import { AutocompleteSearchInput } from "@/components/autocomplete-search-input";
 import { ProductCreateForm } from "@/components/product-create-form";
 import { ProductEditModal } from "@/components/product-edit-modal";
+import { ProductStockAdjustModal } from "@/components/product-stock-adjust-modal";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { compareSearchResults, getSearchScore } from "@/lib/search";
 import { formatCurrency } from "@/lib/utils";
 
 export default async function ProductsPage({
@@ -12,27 +14,27 @@ export default async function ProductsPage({
   searchParams?: { q?: string };
 }) {
   const session = await requireSession(["ADMIN", "MANAGER", "CASHIER"]);
-  const canManageProducts = session.role === "ADMIN" || session.role === "MANAGER";
+  const canCreateProducts = true;
+  const canEditProducts = session.role === "ADMIN" || session.role === "MANAGER";
+  const canAdjustInventory = session.role === "ADMIN" || session.role === "MANAGER";
   const q = searchParams?.q ?? "";
-
-  const productWhere = q
-    ? {
-        OR: [
-          { name: { contains: q, mode: "insensitive" as const } },
-          { sku: { contains: q, mode: "insensitive" as const } },
-          { category: { name: { contains: q, mode: "insensitive" as const } } }
-        ]
-      }
-    : undefined;
+  const activeBranch = session.branchId
+    ? await prisma.branch.findUnique({ where: { id: session.branchId }, select: { id: true } })
+    : await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
+  const branchId = activeBranch?.id ?? "";
 
   const [products, productCount, categories, brands, productSuggestionsSource] = await Promise.all([
     prisma.product.findMany({
-      where: productWhere,
-      include: { category: true, inventories: true },
+      include: {
+        category: true,
+        inventories: {
+          where: branchId ? { branchId } : undefined
+        }
+      },
       orderBy: { sku: "asc" },
-      take: 100
+      take: 5000
     }),
-    prisma.product.count({ where: productWhere }),
+    prisma.product.count(),
     prisma.category.findMany(),
     prisma.brand.findMany(),
     prisma.product.findMany({
@@ -50,6 +52,23 @@ export default async function ProductsPage({
       orderBy: [{ name: "asc" }]
     })
   ]);
+  const filteredProducts = q
+    ? products
+        .map((product) => ({
+          product,
+          score: getSearchScore(product.name, q)
+        }))
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) =>
+          compareSearchResults(
+            { label: a.product.name, score: a.score, searchText: a.product.name },
+            { label: b.product.name, score: b.score, searchText: b.product.name },
+            q
+          )
+        )
+        .map((entry) => entry.product)
+    : products;
+
   const categoryOptions = categories.map((item) => ({ id: item.id, name: item.name }));
   const brandOptions = brands.map((item) => ({ id: item.id, name: item.name }));
   const productSuggestions = productSuggestionsSource.map((product) => ({
@@ -61,9 +80,11 @@ export default async function ProductsPage({
     searchText: product.name
   }));
 
+  const displayCount = q ? filteredProducts.length : productCount;
+
   return (
     <div className="space-y-5 sm:space-y-8">
-      <AppHeader title="Hàng hóa" description={`${productCount} đầu mục sản phẩm`} session={session} />
+      <AppHeader title="Hàng hóa" description={`${displayCount} đầu mục sản phẩm`} session={session} />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
         <form className="w-full max-w-xl">
@@ -74,7 +95,7 @@ export default async function ProductsPage({
             suggestions={productSuggestions}
           />
         </form>
-        {canManageProducts ? (
+        {canCreateProducts ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <details className="relative">
               <summary className="cursor-pointer list-none rounded-2xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white shadow-soft sm:px-6 sm:py-4 sm:text-2xl">
@@ -89,7 +110,7 @@ export default async function ProductsPage({
       </div>
 
       <div className="grid gap-3 sm:hidden">
-        {products.map((product) => {
+        {filteredProducts.map((product) => {
           const totalQuantity = product.inventories.reduce((sum, item) => sum + item.quantity, 0);
 
           return (
@@ -108,25 +129,37 @@ export default async function ProductsPage({
                       <p className="text-[0.88rem] font-semibold uppercase tracking-wide text-slate-400">{product.sku}</p>
                       <p className="mt-1 text-[1.1rem] font-bold leading-snug text-slate-900">{product.name}</p>
                     </div>
-                    {canManageProducts ? (
-                      <ProductEditModal
-                        product={{
-                          id: product.id,
-                          name: product.name,
-                          sku: product.sku,
-                          barcode: product.barcode,
-                          imageUrl: product.imageUrl,
-                          categoryId: product.categoryId,
-                          brandId: product.brandId,
-                          costPrice: Number(product.costPrice),
-                          sellingPrice: Number(product.sellingPrice),
-                          lowStockAlert: product.lowStockAlert,
-                          status: product.status,
-                          description: product.description
-                        }}
-                        categories={categoryOptions}
-                        brands={brandOptions}
-                      />
+                    {canEditProducts || canAdjustInventory ? (
+                      <div className="flex flex-col gap-2">
+                        {canEditProducts ? (
+                          <ProductEditModal
+                            product={{
+                              id: product.id,
+                              name: product.name,
+                              sku: product.sku,
+                              barcode: product.barcode,
+                              imageUrl: product.imageUrl,
+                              categoryId: product.categoryId,
+                              brandId: product.brandId,
+                              costPrice: Number(product.costPrice),
+                              sellingPrice: Number(product.sellingPrice),
+                              lowStockAlert: product.lowStockAlert,
+                              status: product.status,
+                              description: product.description
+                            }}
+                            categories={categoryOptions}
+                            brands={brandOptions}
+                          />
+                        ) : null}
+                        {canAdjustInventory && branchId ? (
+                          <ProductStockAdjustModal
+                            productId={product.id}
+                            productName={product.name}
+                            branchId={branchId}
+                            currentQuantity={totalQuantity}
+                          />
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
 
@@ -166,11 +199,11 @@ export default async function ProductsPage({
               <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Giá bán</th>
               <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Tồn kho</th>
               <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Cảnh báo</th>
-              {canManageProducts ? <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Thao tác</th> : null}
+              {canEditProducts || canAdjustInventory ? <th className="px-3 py-3 text-right sm:px-6 sm:py-4">Thao tác</th> : null}
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => {
+            {filteredProducts.map((product) => {
               const totalQuantity = product.inventories.reduce((sum, item) => sum + item.quantity, 0);
 
               return (
@@ -192,26 +225,38 @@ export default async function ProductsPage({
                     {totalQuantity}
                   </td>
                   <td className="px-3 py-3 text-right sm:px-6 sm:py-4">{product.lowStockAlert}</td>
-                  {canManageProducts ? (
+                  {canEditProducts || canAdjustInventory ? (
                     <td className="px-3 py-3 text-right sm:px-6 sm:py-4">
-                      <ProductEditModal
-                        product={{
-                          id: product.id,
-                          name: product.name,
-                          sku: product.sku,
-                          barcode: product.barcode,
-                          imageUrl: product.imageUrl,
-                          categoryId: product.categoryId,
-                          brandId: product.brandId,
-                          costPrice: Number(product.costPrice),
-                          sellingPrice: Number(product.sellingPrice),
-                          lowStockAlert: product.lowStockAlert,
-                          status: product.status,
-                          description: product.description
-                        }}
-                        categories={categoryOptions}
-                        brands={brandOptions}
-                      />
+                      <div className="flex justify-end gap-2">
+                        {canAdjustInventory && branchId ? (
+                          <ProductStockAdjustModal
+                            productId={product.id}
+                            productName={product.name}
+                            branchId={branchId}
+                            currentQuantity={totalQuantity}
+                          />
+                        ) : null}
+                        {canEditProducts ? (
+                          <ProductEditModal
+                            product={{
+                              id: product.id,
+                              name: product.name,
+                              sku: product.sku,
+                              barcode: product.barcode,
+                              imageUrl: product.imageUrl,
+                              categoryId: product.categoryId,
+                              brandId: product.brandId,
+                              costPrice: Number(product.costPrice),
+                              sellingPrice: Number(product.sellingPrice),
+                              lowStockAlert: product.lowStockAlert,
+                              status: product.status,
+                              description: product.description
+                            }}
+                            categories={categoryOptions}
+                            brands={brandOptions}
+                          />
+                        ) : null}
+                      </div>
                     </td>
                   ) : null}
                 </tr>

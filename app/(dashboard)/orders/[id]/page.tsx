@@ -30,6 +30,11 @@ export default async function OrderDetailPage({
       }
     })
   ]);
+  customers.sort((a, b) => {
+    if (a.code === "KH000000") return -1;
+    if (b.code === "KH000000") return 1;
+    return a.code.localeCompare(b.code);
+  });
 
   if (!order || (session.branchId && order.branchId !== session.branchId)) {
     notFound();
@@ -67,6 +72,7 @@ export default async function OrderDetailPage({
             branchId={order.branchId}
             customerId={order.customerId}
             note={order.note || ""}
+            otherCharge={Number(order.otherCharge)}
             paidAmount={Number(order.paidAmount)}
             lines={order.items.map((item) => ({
               productId: item.productId,
@@ -121,6 +127,7 @@ export default async function OrderDetailPage({
             note={order.note || ""}
             subtotal={Number(order.subtotal)}
             discountTotal={Number(order.discountTotal)}
+            otherCharge={Number(order.otherCharge)}
             paidAmount={Number(order.paidAmount)}
             debtAmount={Number(order.debtAmount)}
             grandTotal={Number(order.grandTotal)}
@@ -273,6 +280,10 @@ export default async function OrderDetailPage({
               <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                 <span className="text-sm font-medium text-slate-500 sm:text-base">Giảm giá</span>
                 <span className="text-sm font-bold whitespace-nowrap text-slate-900 sm:text-xl">{formatCurrency(Number(order.discountTotal))}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                <span className="text-sm font-medium text-slate-500 sm:text-base">Thu khác</span>
+                <span className="text-sm font-bold whitespace-nowrap text-slate-900 sm:text-xl">{formatCurrency(Number(order.otherCharge))}</span>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3">
                 <span className="text-sm font-medium text-emerald-700 sm:text-base">Đã trả</span>

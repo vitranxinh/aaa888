@@ -28,10 +28,28 @@ export async function POST(request: Request) {
 
     const payload = parsed.data;
     await prisma.$transaction(async (tx) => {
-      await tx.inventory.updateMany({
-        where: { branchId: payload.branchId, productId: payload.productId, variantId: payload.variantId },
-        data: { quantity: { increment: payload.quantity } }
+      const existingInventory = await tx.inventory.findFirst({
+        where: { branchId: payload.branchId, productId: payload.productId, variantId: payload.variantId ?? null },
+        select: { id: true }
       });
+
+      if (existingInventory) {
+        await tx.inventory.update({
+          where: { id: existingInventory.id },
+          data: { quantity: { increment: payload.quantity } }
+        });
+      } else {
+        await tx.inventory.create({
+          data: {
+            branchId: payload.branchId,
+            productId: payload.productId,
+            variantId: payload.variantId ?? null,
+            quantity: payload.quantity,
+            reservedQty: 0
+          }
+        });
+      }
+
       await tx.inventoryTransaction.create({
         data: {
           ...payload,

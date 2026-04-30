@@ -26,7 +26,7 @@ export default async function CashflowPage({ searchParams }: CashflowPageProps) 
     branchId: session.branchId ?? undefined,
     ...(createdAt ? { createdAt } : {})
   };
-  const [transactions, transactionCount, summaryTransactions, orders, purchases, customers, suppliers] = await Promise.all([
+  const [transactions, transactionCount, summaryTransactions, orders, purchases, customers, suppliers, employeeUsers] = await Promise.all([
     prisma.cashTransaction.findMany({
       where: cashflowWhere,
       include: { customer: true, supplier: true, order: true, purchaseOrder: true, createdBy: true },
@@ -54,21 +54,46 @@ export default async function CashflowPage({ searchParams }: CashflowPageProps) 
     prisma.order.findMany({ where: { branchId: session.branchId ?? undefined }, select: { id: true, code: true }, orderBy: { createdAt: "desc" }, take: 40 }),
     prisma.purchaseOrder.findMany({ where: { branchId: session.branchId ?? undefined }, select: { id: true, code: true }, orderBy: { createdAt: "desc" }, take: 40 }),
     prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { code: "desc" }, take: 100 }),
-    prisma.supplier.findMany({ select: { id: true, name: true }, orderBy: { code: "asc" }, take: 100 })
+    prisma.supplier.findMany({ select: { id: true, name: true }, orderBy: { code: "asc" }, take: 100 }),
+    prisma.user.findMany({
+      where: {
+        isActive: true,
+        branchId: session.branchId ?? undefined
+      },
+      select: {
+        id: true,
+        name: true
+      },
+      orderBy: { name: "asc" }
+    })
   ]);
 
-  const employeeCashSummary = summaryTransactions.reduce<
-    Array<{
-      id: string;
-      name: string;
-      receiptTotal: number;
-      paymentTotal: number;
-      transactionCount: number;
-    }>
-  >((acc, item) => {
+  const employeeSummaryMap = employeeUsers.reduce<
+    Map<
+      string,
+      {
+        id: string;
+        name: string;
+        receiptTotal: number;
+        paymentTotal: number;
+        transactionCount: number;
+      }
+    >
+  >((map, user) => {
+    map.set(user.id, {
+      id: user.id,
+      name: user.name,
+      receiptTotal: 0,
+      paymentTotal: 0,
+      transactionCount: 0
+    });
+    return map;
+  }, new Map());
+
+  summaryTransactions.forEach((item) => {
     const actorId = item.createdBy?.id ?? "unknown";
     const actorName = item.createdBy?.name ?? "Không rõ";
-    const existing = acc.find((entry) => entry.id === actorId);
+    const existing = employeeSummaryMap.get(actorId);
     const amount = Number(item.amount);
 
     if (existing) {
@@ -78,18 +103,19 @@ export default async function CashflowPage({ searchParams }: CashflowPageProps) 
       } else {
         existing.paymentTotal += amount;
       }
-      return acc;
+      return;
     }
 
-    acc.push({
+    employeeSummaryMap.set(actorId, {
       id: actorId,
       name: actorName,
       receiptTotal: item.type === "RECEIPT" ? amount : 0,
       paymentTotal: item.type === "PAYMENT" ? amount : 0,
       transactionCount: 1
     });
-    return acc;
-  }, []);
+  });
+
+  const employeeCashSummary = Array.from(employeeSummaryMap.values());
 
   employeeCashSummary.sort((a, b) => (b.receiptTotal - b.paymentTotal) - (a.receiptTotal - a.paymentTotal));
 
@@ -183,7 +209,73 @@ export default async function CashflowPage({ searchParams }: CashflowPageProps) 
         </section>
       ) : null}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-soft">
+      <div className="grid gap-3 sm:hidden">
+        {transactions.map((item) => (
+          <div key={item.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-soft">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[0.9rem] font-semibold uppercase tracking-wide text-slate-400">{item.code}</p>
+                <p className="mt-1 text-[0.95rem] text-slate-500">{formatDate(item.createdAt)}</p>
+              </div>
+              <div
+                className={`rounded-2xl px-3 py-1 text-sm font-semibold ${
+                  item.type === "RECEIPT" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
+                }`}
+              >
+                {item.type === "RECEIPT" ? "Thu" : "Chi"}
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3">
+              <div>
+                <p className="text-[0.85rem] font-medium text-slate-400">Đối tượng</p>
+                <p className="mt-1 text-[1rem] font-semibold text-slate-800">
+                  {item.customer?.name ?? item.supplier?.name ?? "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[0.85rem] font-medium text-slate-400">Liên kết</p>
+                <p className="mt-1 text-[1rem] font-semibold text-slate-800">{item.order?.code ?? item.purchaseOrder?.code ?? "-"}</p>
+              </div>
+              {isBossAccount ? (
+                <div>
+                  <p className="text-[0.85rem] font-medium text-slate-400">Người tạo</p>
+                  <p className="mt-1 text-[1rem] font-semibold text-slate-800">{item.createdBy?.name ?? "-"}</p>
+                </div>
+              ) : null}
+              <div className={isBossAccount ? "" : "col-span-2"}>
+                <p className="text-[0.85rem] font-medium text-slate-400">Số tiền</p>
+                <p className={`mt-1 text-[1.15rem] font-bold ${item.type === "RECEIPT" ? "text-emerald-700" : "text-red-600"}`}>
+                  {formatCurrency(Number(item.amount))}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <CashflowEditModal
+                transaction={{
+                  id: item.id,
+                  code: item.code,
+                  type: item.type,
+                  amount: Number(item.amount),
+                  note: item.note,
+                  orderId: item.orderId,
+                  purchaseOrderId: item.purchaseOrderId,
+                  customerId: item.customerId,
+                  supplierId: item.supplierId
+                }}
+                branchId={session.branchId ?? ""}
+                orders={orders}
+                purchases={purchases}
+                customers={customers}
+                suppliers={suppliers}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-soft sm:block">
         <table className={`text-left ${isBossAccount ? "min-w-[980px]" : "min-w-[860px]"}`}>
           <thead className="bg-slate-50 text-sm font-semibold text-slate-500 sm:text-xl">
             <tr>

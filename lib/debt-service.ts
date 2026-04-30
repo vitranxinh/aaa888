@@ -1,35 +1,61 @@
 import { Prisma } from "@prisma/client";
 
 export async function recalculateCustomerReceivableDebt(tx: Prisma.TransactionClient, customerId: string) {
-  const aggregate = await tx.order.aggregate({
-    where: {
-      customerId,
-      status: { in: ["COMPLETED", "PARTIAL"] }
-    },
-    _sum: { debtAmount: true }
-  });
+  const [orderAggregate, standaloneReceiptAggregate] = await Promise.all([
+    tx.order.aggregate({
+      where: {
+        customerId,
+        status: { in: ["COMPLETED", "PARTIAL"] }
+      },
+      _sum: { debtAmount: true }
+    }),
+    tx.cashTransaction.aggregate({
+      where: {
+        customerId,
+        type: "RECEIPT",
+        orderId: null
+      },
+      _sum: { amount: true }
+    })
+  ]);
+
+  const orderDebt = Number(orderAggregate._sum.debtAmount ?? 0);
+  const standaloneReceipt = Number(standaloneReceiptAggregate._sum.amount ?? 0);
 
   await tx.customer.update({
     where: { id: customerId },
     data: {
-      receivableDebt: aggregate._sum.debtAmount ?? 0
+      receivableDebt: Math.max(orderDebt - standaloneReceipt, 0)
     }
   });
 }
 
 export async function recalculateSupplierPayableDebt(tx: Prisma.TransactionClient, supplierId: string) {
-  const aggregate = await tx.purchaseOrder.aggregate({
-    where: {
-      supplierId,
-      status: { in: ["COMPLETED", "PARTIAL"] }
-    },
-    _sum: { debtAmount: true }
-  });
+  const [purchaseAggregate, standalonePaymentAggregate] = await Promise.all([
+    tx.purchaseOrder.aggregate({
+      where: {
+        supplierId,
+        status: { in: ["COMPLETED", "PARTIAL"] }
+      },
+      _sum: { debtAmount: true }
+    }),
+    tx.cashTransaction.aggregate({
+      where: {
+        supplierId,
+        type: "PAYMENT",
+        purchaseOrderId: null
+      },
+      _sum: { amount: true }
+    })
+  ]);
+
+  const purchaseDebt = Number(purchaseAggregate._sum.debtAmount ?? 0);
+  const standalonePayment = Number(standalonePaymentAggregate._sum.amount ?? 0);
 
   await tx.supplier.update({
     where: { id: supplierId },
     data: {
-      payableDebt: aggregate._sum.debtAmount ?? 0
+      payableDebt: Math.max(purchaseDebt - standalonePayment, 0)
     }
   });
 }

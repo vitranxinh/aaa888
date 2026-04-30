@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AppHeader } from "@/components/app-header";
 import { ChartCard } from "@/components/chart-card";
 import { requireSession } from "@/lib/auth";
@@ -37,6 +38,12 @@ export default async function DashboardPage({
     { label: "Sắp hết hàng", value: data.lowStockCount, icon: "⚠️", tone: "border-rose-200 bg-rose-50/60" }
   ];
 
+  const mobileQuickLinks = [
+    { href: "/suppliers", label: "Nhà cung cấp", icon: "🏭", tone: "bg-sky-50 text-sky-700 border-sky-100" },
+    { href: "/cashflow", label: "Thu / Chi", icon: "💸", tone: "bg-amber-50 text-amber-700 border-amber-100" },
+    { href: "/inventory", label: "Nhập hàng", icon: "📥", tone: "bg-violet-50 text-violet-700 border-violet-100" }
+  ];
+
   return (
     <div className="space-y-5 sm:space-y-8">
       <AppHeader title="Tổng quan" description="Tổng hợp hoạt động bán hàng và công nợ" session={session} />
@@ -59,6 +66,19 @@ export default async function DashboardPage({
         <button className="h-12 rounded-2xl bg-emerald-600 px-5 text-base font-semibold text-white">Áp dụng</button>
         <p className="pb-0 text-sm text-slate-500 sm:pb-2">Đang xem theo: <span className="font-semibold text-slate-700">{selectedRangeLabel}</span></p>
       </form>
+
+      <section className="grid grid-cols-3 gap-3 sm:hidden">
+        {mobileQuickLinks.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`rounded-3xl border p-4 shadow-soft ${item.tone}`}
+          >
+            <div className="text-2xl">{item.icon}</div>
+            <p className="mt-3 text-sm font-bold leading-snug">{item.label}</p>
+          </Link>
+        ))}
+      </section>
 
       <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:gap-5 xl:grid-cols-3">
         {cards.map((card) => (

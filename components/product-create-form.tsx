@@ -13,7 +13,15 @@ type Props = {
 
 export function ProductCreateForm({ categories, brands }: Props) {
   const [isPending, startTransition] = useTransition();
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [isAddingBrand, setIsAddingBrand] = useState(false);
   const [imagePreview, setImagePreview] = useState("");
+  const [categoryOptions, setCategoryOptions] = useState(categories);
+  const [brandOptions, setBrandOptions] = useState(brands);
+  const [showCategoryCreator, setShowCategoryCreator] = useState(false);
+  const [showBrandCreator, setShowBrandCreator] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newBrandName, setNewBrandName] = useState("");
   const [name, setName] = useState("");
   const [sellingPrice, setSellingPrice] = useState<number | "">(0);
   const [sku, setSku] = useState("");
@@ -40,6 +48,64 @@ export function ProductCreateForm({ categories, brands }: Props) {
     setLowStockAlert(10);
     setStatus("ACTIVE");
     setDescription("");
+  }
+
+  async function createCategory() {
+    const categoryName = newCategoryName.trim();
+    if (categoryName.length < 2) {
+      pushToast({ title: "Không thể thêm danh mục", description: "Tên danh mục phải có ít nhất 2 ký tự.", variant: "error" });
+      return;
+    }
+
+    setIsAddingCategory(true);
+    try {
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: categoryName })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        pushToast({ title: "Không thể thêm danh mục", description: payload.error, variant: "error" });
+        return;
+      }
+      setCategoryOptions((prev) => (prev.some((item) => item.id === payload.id) ? prev : [...prev, payload]));
+      setCategoryId(payload.id);
+      setNewCategoryName("");
+      setShowCategoryCreator(false);
+      pushToast({ title: "Đã thêm danh mục", description: payload.name });
+    } finally {
+      setIsAddingCategory(false);
+    }
+  }
+
+  async function createBrand() {
+    const brandName = newBrandName.trim();
+    if (brandName.length < 2) {
+      pushToast({ title: "Không thể thêm thương hiệu", description: "Tên thương hiệu phải có ít nhất 2 ký tự.", variant: "error" });
+      return;
+    }
+
+    setIsAddingBrand(true);
+    try {
+      const response = await fetch("/api/brands", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: brandName })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        pushToast({ title: "Không thể thêm thương hiệu", description: payload.error, variant: "error" });
+        return;
+      }
+      setBrandOptions((prev) => (prev.some((item) => item.id === payload.id) ? prev : [...prev, payload]));
+      setBrandId(payload.id);
+      setNewBrandName("");
+      setShowBrandCreator(false);
+      pushToast({ title: "Đã thêm thương hiệu", description: payload.name });
+    } finally {
+      setIsAddingBrand(false);
+    }
   }
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -135,12 +201,27 @@ export function ProductCreateForm({ categories, brands }: Props) {
             <span className="text-xs text-slate-500">Tùy chọn</span>
             <select className="rounded-xl border border-slate-300 px-3 py-2 text-sm" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
               <option value="">Chọn danh mục</option>
-              {categories.map((category) => (
+              {categoryOptions.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="text-left text-xs font-semibold text-emerald-700"
+              onClick={() => setShowCategoryCreator((prev) => !prev)}
+            >
+              + Thêm danh mục mới
+            </button>
+            {showCategoryCreator ? (
+              <div className="flex gap-2">
+                <Input placeholder="Tên danh mục mới" value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} />
+                <Button type="button" className="shrink-0" disabled={isAddingCategory} onClick={createCategory}>
+                  {isAddingCategory ? "Đang thêm..." : "Thêm"}
+                </Button>
+              </div>
+            ) : null}
           </label>
 
           <label className="grid gap-1">
@@ -148,12 +229,27 @@ export function ProductCreateForm({ categories, brands }: Props) {
             <span className="text-xs text-slate-500">Tùy chọn</span>
             <select className="rounded-xl border border-slate-300 px-3 py-2 text-sm" value={brandId} onChange={(event) => setBrandId(event.target.value)}>
               <option value="">Chọn thương hiệu</option>
-              {brands.map((brand) => (
+              {brandOptions.map((brand) => (
                 <option key={brand.id} value={brand.id}>
                   {brand.name}
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="text-left text-xs font-semibold text-emerald-700"
+              onClick={() => setShowBrandCreator((prev) => !prev)}
+            >
+              + Thêm thương hiệu mới
+            </button>
+            {showBrandCreator ? (
+              <div className="flex gap-2">
+                <Input placeholder="Tên thương hiệu mới" value={newBrandName} onChange={(event) => setNewBrandName(event.target.value)} />
+                <Button type="button" className="shrink-0" disabled={isAddingBrand} onClick={createBrand}>
+                  {isAddingBrand ? "Đang thêm..." : "Thêm"}
+                </Button>
+              </div>
+            ) : null}
           </label>
         </div>
 

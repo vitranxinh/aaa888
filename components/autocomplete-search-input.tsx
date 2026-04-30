@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { compareSearchResults, getSearchScore, normalizeSearchText } from "@/lib/search";
 
 type SuggestionItem = {
   label: string;
@@ -17,6 +18,7 @@ type Props = {
   placeholder: string;
   suggestions: SuggestionItem[];
   className?: string;
+  fetchUrl?: string;
 };
 
 export function AutocompleteSearchInput({
@@ -24,15 +26,47 @@ export function AutocompleteSearchInput({
   defaultValue = "",
   placeholder,
   suggestions,
-  className
+  className,
+  fetchUrl
 }: Props) {
   const [query, setQuery] = useState(defaultValue);
   const [open, setOpen] = useState(false);
+  const [remoteSuggestions, setRemoteSuggestions] = useState<SuggestionItem[]>([]);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setQuery(defaultValue);
   }, [defaultValue]);
+
+  useEffect(() => {
+    if (!fetchUrl) return;
+
+    const normalizedQuery = normalizeSearchText(query);
+    if (normalizedQuery.length < 1) {
+      setRemoteSuggestions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      try {
+        const response = await fetch(`${fetchUrl}?q=${encodeURIComponent(query)}`, {
+          signal: controller.signal,
+          credentials: "same-origin"
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        setRemoteSuggestions(Array.isArray(payload) ? payload : []);
+      } catch {
+        // Ignore aborted requests and transient network errors in typeahead
+      }
+    }, 120);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [fetchUrl, query]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -46,33 +80,25 @@ export function AutocompleteSearchInput({
   }, []);
 
   const filteredSuggestions = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
+    if (fetchUrl) return remoteSuggestions;
+
+    const keyword = normalizeSearchText(query);
     if (keyword.length < 1) return [];
 
     return suggestions
       .map((item) => {
-        const haystack = (item.searchText ?? `${item.label} ${item.value} ${item.meta ?? ""}`).toLowerCase().trim();
-        const words = haystack.split(/\s+/).filter(Boolean);
-
-        let score = -1;
-        if (haystack.startsWith(keyword)) {
-          score = 3;
-        } else if (words.some((word) => word.startsWith(keyword))) {
-          score = 2;
-        } else if (haystack.includes(keyword)) {
-          score = 1;
-        }
-
+        const score = getSearchScore(item.searchText ?? `${item.label} ${item.value} ${item.meta ?? ""}`, keyword);
         return { item, score };
       })
       .filter((entry) => entry.score > 0)
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return a.item.label.localeCompare(b.item.label, "vi");
-      })
+      .sort((a, b) => compareSearchResults(
+        { label: a.item.label, score: a.score, searchText: a.item.searchText },
+        { label: b.item.label, score: b.score, searchText: b.item.searchText },
+        keyword
+      ))
       .map((entry) => entry.item)
-      .slice(0, 8);
-  }, [query, suggestions]);
+      .slice(0, 100);
+  }, [fetchUrl, query, remoteSuggestions, suggestions]);
 
   function submitClosestForm(nextValue: string) {
     setQuery(nextValue);

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { compareSearchResults, getSearchScore } from "@/lib/search";
 import { useToastStore } from "@/store/toast-store";
 
 type OrderLine = {
@@ -16,6 +17,7 @@ type Props = {
   branchId: string;
   customerId: string;
   note: string;
+  otherCharge: number;
   paidAmount: number;
   lines: OrderLine[];
   customers: { id: string; name: string }[];
@@ -27,6 +29,7 @@ export function OrderEditModal({
   branchId,
   customerId: initialCustomerId,
   note: initialNote,
+  otherCharge: initialOtherCharge,
   paidAmount: initialPaidAmount,
   lines: initialLines,
   customers,
@@ -37,6 +40,7 @@ export function OrderEditModal({
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const [productQuery, setProductQuery] = useState("");
   const [note, setNote] = useState(initialNote);
+  const [otherCharge, setOtherCharge] = useState(initialOtherCharge);
   const [paidAmount, setPaidAmount] = useState(initialPaidAmount);
   const [paymentTouched, setPaymentTouched] = useState(false);
   const [lines, setLines] = useState<OrderLine[]>(initialLines);
@@ -46,19 +50,31 @@ export function OrderEditModal({
     if (open) {
       setCustomerId(initialCustomerId);
       setNote(initialNote);
+      setOtherCharge(initialOtherCharge);
       setPaidAmount(initialPaidAmount);
       setLines(initialLines);
       setPaymentTouched(false);
       setProductQuery("");
     }
-  }, [open, initialCustomerId, initialNote, initialPaidAmount, initialLines]);
+  }, [open, initialCustomerId, initialNote, initialOtherCharge, initialPaidAmount, initialLines]);
 
   const matchedProducts = useMemo(() => {
-    const q = productQuery.toLowerCase();
-    return products.filter((item) => item.name.toLowerCase().includes(q)).slice(0, 12);
+    return products
+      .map((item) => ({ item, score: getSearchScore(item.name, productQuery) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) =>
+        compareSearchResults(
+          { label: a.item.name, score: a.score, searchText: a.item.name },
+          { label: b.item.name, score: b.score, searchText: b.item.name },
+          productQuery
+        )
+      )
+      .map((entry) => entry.item)
+      .slice(0, 100);
   }, [productQuery, products]);
 
-  const orderTotal = useMemo(() => lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0), [lines]);
+  const merchandiseTotal = useMemo(() => lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0), [lines]);
+  const orderTotal = useMemo(() => merchandiseTotal + otherCharge, [merchandiseTotal, otherCharge]);
   useEffect(() => {
     if (!paymentTouched && open) {
       setPaidAmount(Math.min(initialPaidAmount, orderTotal));
@@ -102,6 +118,7 @@ export function OrderEditModal({
             paymentMethod: "CASH",
             paidAmount: Math.max(paidAmount, 0),
             orderDiscount: 0,
+            otherCharge: Math.max(otherCharge, 0),
             note,
             status: "COMPLETED",
             items: lines
@@ -233,7 +250,7 @@ export function OrderEditModal({
 
                   <div className="flex items-center justify-end border-t border-slate-200 pt-3">
                     <div className="rounded-xl bg-white px-3 py-2 text-base font-bold text-slate-900 sm:px-4 sm:py-2.5 sm:text-xl">
-                      Tổng hóa đơn: {orderTotal.toLocaleString("vi-VN")} đ
+                      Tổng tiền hàng: {merchandiseTotal.toLocaleString("vi-VN")} đ
                     </div>
                   </div>
                 </div>
@@ -248,7 +265,18 @@ export function OrderEditModal({
                 />
               </div>
 
-              <div className="grid gap-3 rounded-2xl bg-slate-50 p-3 sm:gap-4 sm:p-4 md:grid-cols-[180px_1fr]">
+              <div className="grid gap-3 rounded-2xl bg-slate-50 p-3 sm:gap-4 sm:p-4 md:grid-cols-[180px_180px_1fr_1fr]">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold uppercase tracking-wide text-slate-500">Thu khác</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={otherCharge}
+                    onChange={(e) => setOtherCharge(Number(e.target.value))}
+                    className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm sm:h-12 sm:px-4 sm:text-base"
+                    placeholder="Phí ship, hàng mua hộ..."
+                  />
+                </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold uppercase tracking-wide text-slate-500">Thanh toán</label>
                   <input
@@ -261,6 +289,10 @@ export function OrderEditModal({
                     }}
                     className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm sm:h-12 sm:px-4 sm:text-base"
                   />
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:px-4 sm:py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tiền hàng</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900 sm:text-xl">{merchandiseTotal.toLocaleString("vi-VN")} đ</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:px-4 sm:py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tổng hóa đơn</p>
